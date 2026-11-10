@@ -280,13 +280,38 @@ export function useISMSStore() {
       if (error) {
         return { success: false, message: `Ungültiges Dateiformat: ${error}` };
       }
-      // Sicherung des bisherigen Stands vor dem Überschreiben
+      const imported: ISMSStoreData = { ...initialISMSState, ...parsed, lastSavedAt: new Date().toISOString() };
+
+      // 1. Sicherung des bisherigen Stands vor dem Überschreiben
       try {
         localStorage.setItem(BACKUP_KEY, JSON.stringify(data));
       } catch {
-        return { success: false, message: 'Sicherung des aktuellen Stands fehlgeschlagen – Import abgebrochen.' };
+        return {
+          success: false,
+          message:
+            'Sicherung des aktuellen Stands fehlgeschlagen (lokaler Speicher voll) – Import abgebrochen. Bitte vorher per JSON-Export sichern.',
+        };
       }
-      setData({ ...initialISMSState, ...parsed, lastSavedAt: new Date().toISOString() });
+
+      // 2. Neuen Stand dauerhaft speichern, BEVOR State und Erfolgsmeldung aktualisiert werden.
+      //    Schlägt das fehl (z. B. Quota durch Sicherung + Import überschritten), wird die
+      //    Sicherung wieder entfernt; der bisherige Stand unter STORAGE_KEY bleibt unverändert.
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(imported));
+      } catch {
+        try {
+          localStorage.removeItem(BACKUP_KEY);
+        } catch {
+          /* ignorieren */
+        }
+        return {
+          success: false,
+          message:
+            'Importierte Daten sind zu groß für den lokalen Speicher des Browsers – Import abgebrochen, bisheriger Stand unverändert.',
+        };
+      }
+
+      setData(imported);
       return { success: true, message: 'ISMS-Daten erfolgreich importiert (vorheriger Stand wurde gesichert).' };
     } catch {
       return { success: false, message: 'Fehler beim Lesen der Datei: kein gültiges JSON.' };
