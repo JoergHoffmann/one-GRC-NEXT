@@ -19,7 +19,18 @@ const port = process.env.PORT || 3000;
 const isProduction = process.env.NODE_ENV === 'production';
 
 app.disable('x-powered-by');
-app.set('trust proxy', 1); // Cloud Run / Reverse Proxy: korrekte Client-IP für das Rate-Limit
+// Proxy-Vertrauen nur explizit (TRUST_PROXY). Standard: keinem Proxy vertrauen, damit
+// req.ip nicht über einen gefälschten X-Forwarded-For-Header gesteuert werden kann
+// (sonst ließe sich das KI-Rate-Limit umgehen).
+// Hinter Cloud Run / genau einem Reverse Proxy: TRUST_PROXY="1".
+function parseTrustProxy(value: string | undefined): boolean | number | string {
+  const v = (value ?? '').trim();
+  if (!v || v.toLowerCase() === 'false' || v === '0') return false;
+  if (v.toLowerCase() === 'true') return true;
+  if (/^\d+$/.test(v)) return Number(v);
+  return v; // z. B. "loopback" oder "10.0.0.0/8, 192.168.0.1"
+}
+app.set('trust proxy', parseTrustProxy(process.env.TRUST_PROXY));
 
 // --- Sicherheits-Header (ohne zusätzliche Abhängigkeit) -------------------
 app.use((_req, res, next) => {
