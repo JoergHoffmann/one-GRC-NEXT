@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { AlertCircle, Plus, Search, ShieldAlert, CheckCircle2, Clock, X, AlertTriangle, FileWarning } from 'lucide-react';
 import { ISMSIncident } from '../types/isms';
+import { nextSequentialId } from '../utils/ismsUtils';
 
 interface IncidentViewProps {
   incidents: ISMSIncident[];
@@ -47,7 +48,7 @@ export const IncidentView: React.FC<IncidentViewProps> = ({
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
     const newInc: ISMSIncident = {
-      id: `INC-2026-${String(incidents.length + 1).padStart(3, '0')}`,
+      id: nextSequentialId(incidents.map((i) => i.id), `INC-${new Date().getFullYear()}-`, 3),
       ...formState,
     };
     onAddIncident(newInc);

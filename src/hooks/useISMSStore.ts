@@ -10,8 +10,32 @@ import {
   ISMSOrganizationContext,
 } from '../types/isms';
 import { initialISMSState } from '../data/initialISMSData';
+import { csvCell } from '../utils/ismsUtils';
 
 const STORAGE_KEY = 'certsecure_isms_data_v1';
+const BACKUP_KEY = 'certsecure_isms_data_v1_backup_before_import';
+const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
+
+const COLLECTION_KEYS = ['controls', 'assets', 'risks', 'policies', 'incidents', 'audits'] as const;
+
+/** Strukturprüfung einer importierten ISMS-Datei (ohne externe Abhängigkeit). */
+function validateImportedData(parsed: any): string | null {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return 'Kein gültiges JSON-Objekt.';
+  if (!parsed.organization || typeof parsed.organization !== 'object') return 'organization fehlt oder ist ungültig.';
+  if (typeof parsed.organization.companyName !== 'string') return 'organization.companyName fehlt.';
+  for (const key of COLLECTION_KEYS) {
+    const col = parsed[key];
+    if (!Array.isArray(col)) return `${key} fehlt oder ist keine Liste.`;
+    for (const item of col) {
+      if (!item || typeof item !== 'object' || typeof item.id !== 'string' || !item.id) {
+        return `${key} enthält Einträge ohne gültige id.`;
+      }
+    }
+    const ids = new Set(col.map((i: any) => i.id));
+    if (ids.size !== col.length) return `${key} enthält doppelte IDs.`;
+  }
+  return null;
+}
 
 export function useISMSStore() {
   const [data, setData] = useState<ISMSStoreData>(() => {
@@ -198,16 +222,26 @@ export function useISMSStore() {
 
   const importJSON = useCallback((jsonContent: string) => {
     try {
-      const parsed = JSON.parse(jsonContent);
-      if (parsed && Array.isArray(parsed.controls) && parsed.organization) {
-        setData(parsed);
-        return { success: true, message: 'ISMS-Daten erfolgreich importiert' };
+      if (jsonContent.length > MAX_IMPORT_BYTES) {
+        return { success: false, message: 'Datei ist zu groß (max. 5 MB).' };
       }
-      return { success: false, message: 'Ungültiges Dateiformat. controls oder organization fehlt.' };
-    } catch (e: any) {
-      return { success: false, message: `Fehler beim Parsen: ${e.message}` };
+      const parsed = JSON.parse(jsonContent);
+      const error = validateImportedData(parsed);
+      if (error) {
+        return { success: false, message: `Ungültiges Dateiformat: ${error}` };
+      }
+      // Sicherung des bisherigen Stands vor dem Überschreiben
+      try {
+        localStorage.setItem(BACKUP_KEY, JSON.stringify(data));
+      } catch {
+        return { success: false, message: 'Sicherung des aktuellen Stands fehlgeschlagen – Import abgebrochen.' };
+      }
+      setData({ ...initialISMSState, ...parsed, lastSavedAt: new Date().toISOString() });
+      return { success: true, message: 'ISMS-Daten erfolgreich importiert (vorheriger Stand wurde gesichert).' };
+    } catch {
+      return { success: false, message: 'Fehler beim Lesen der Datei: kein gültiges JSON.' };
     }
-  }, []);
+  }, [data]);
 
   const exportSoACsv = useCallback(() => {
     const headers = [
@@ -223,18 +257,20 @@ export function useISMSStore() {
       'Zuletzt geprüft',
     ];
 
-    const rows = data.controls.map((c) => [
-      `"${c.id}"`,
-      `"${c.theme}"`,
-      `"${c.title.replace(/"/g, '""')}"`,
-      `"${c.applicable ? 'Ja' : 'Nein'}"`,
-      `"${(c.justification || '').replace(/"/g, '""')}"`,
-      `"${c.implementationStatus}"`,
-      `"${c.maturityLevel}"`,
-      `"${(c.owner || '').replace(/"/g, '""')}"`,
-      `"${(c.evidenceNotes || '').replace(/"/g, '""')}"`,
-      `"${c.lastReviewedAt || ''}"`,
-    ]);
+    const rows = data.controls.map((c) =>
+      [
+        c.id,
+        c.theme,
+        c.title,
+        c.applicable ? 'Ja' : 'Nein',
+        c.justification,
+        c.implementationStatus,
+        c.maturityLevel,
+        c.owner,
+        c.evidenceNotes,
+        c.lastReviewedAt,
+      ].map(csvCell)
+    );
 
     const csvContent = '\uFEFF' + [headers.join(';'), ...rows.map((r) => r.join(';'))].join('\r\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });

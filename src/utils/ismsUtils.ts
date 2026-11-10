@@ -62,3 +62,27 @@ export function formatDateGerman(dateStr: string): string {
     return dateStr;
   }
 }
+
+/**
+ * Erzeugt die nächste freie, eindeutige ID für ein Präfix (z. B. "RSK-").
+ * Basiert auf der höchsten vorhandenen laufenden Nummer statt auf der
+ * Array-Länge, damit nach Löschungen keine doppelten IDs entstehen.
+ */
+export function nextSequentialId(existingIds: string[], prefix: string, pad = 2): string {
+  const max = existingIds.reduce((acc, id) => {
+    if (!id.startsWith(prefix)) return acc;
+    const n = parseInt(id.slice(prefix.length), 10);
+    return Number.isFinite(n) && n > acc ? n : acc;
+  }, 0);
+  return `${prefix}${String(max + 1).padStart(pad, '0')}`;
+}
+
+/**
+ * Maskiert einen Wert für den CSV-Export (RFC 4180) und verhindert
+ * CSV-/Formel-Injection in Tabellenkalkulationen (=, +, -, @, Tab, CR).
+ */
+export function csvCell(value: unknown): string {
+  let s = value === null || value === undefined ? '' : String(value);
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return `"${s.replace(/"/g, '""')}"`;
+}
