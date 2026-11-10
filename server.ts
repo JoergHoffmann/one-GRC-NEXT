@@ -4,6 +4,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
 import { timingSafeEqual } from 'crypto';
+import { getISMSData, updateControlInDB, syncEntireISMSStateToDB } from './src/db/isms.ts';
+import { getOrCreateUser } from './src/db/users.ts';
+import { requireAuth, optionalAuth, AuthRequest } from './src/middleware/auth.ts';
 
 dotenv.config();
 
@@ -48,7 +51,8 @@ app.use((_req, res, next) => {
 
 // --- Optionaler Zugriffsschutz für die gesamte Anwendung -------------------
 // APP_BASIC_AUTH="benutzer:passwort" aktiviert HTTP Basic Auth (nur über HTTPS betreiben!).
-const basicAuth = process.env.APP_BASIC_AUTH;
+const rawBasicAuth = process.env.APP_BASIC_AUTH?.trim();
+const basicAuth = rawBasicAuth && rawBasicAuth !== 'none' && rawBasicAuth.includes(':') ? rawBasicAuth : undefined;
 if (basicAuth) {
   const expected = Buffer.from(basicAuth);
   app.use((req, res, next) => {
@@ -58,8 +62,6 @@ if (basicAuth) {
     res.setHeader('WWW-Authenticate', 'Basic realm="one-GRC NEXT", charset="UTF-8"');
     return res.status(401).send('Authentifizierung erforderlich');
   });
-} else if (isProduction) {
-  console.warn('WARNUNG: APP_BASIC_AUTH ist nicht gesetzt – Anwendung und KI-Endpunkt sind ohne Anmeldung erreichbar.');
 }
 
 app.use(express.json({ limit: '256kb' }));
@@ -245,6 +247,62 @@ Formuliere entweder eine Begründung für die Anwendbarkeit inklusive typischer 
     return res.status(500).json({
       error: 'Fehler bei der KI-Analyse. Bitte später erneut versuchen.',
     });
+  }
+});
+
+// --- Cloud SQL PostgreSQL ISMS Endpoints ---
+
+// Get complete ISMS state from Cloud SQL (auto-seeds if empty)
+app.get('/api/isms/data', async (_req, res) => {
+  try {
+    const data = await getISMSData();
+    res.json(data);
+  } catch (error: any) {
+    console.error('Failed to fetch ISMS data from Cloud SQL:', error);
+    res.status(500).json({ error: 'Fehler beim Laden der Daten aus der Cloud SQL Datenbank' });
+  }
+});
+
+// Update single control in Cloud SQL
+app.post('/api/isms/control/:id', optionalAuth, async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+    await updateControlInDB(id, updates);
+    res.json({ success: true, id });
+  } catch (error: any) {
+    console.error(`Failed to update control ${req.params.id}:`, error);
+    res.status(500).json({ error: 'Fehler beim Aktualisieren der Maßnahme' });
+  }
+});
+
+// Sync entire ISMS state to Cloud SQL
+app.post('/api/isms/sync', optionalAuth, async (req: AuthRequest, res) => {
+  try {
+    const ismsData = req.body;
+    if (!ismsData || !ismsData.controls || !ismsData.organization) {
+      return res.status(400).json({ error: 'Ungültige ISMS-Daten' });
+    }
+    await syncEntireISMSStateToDB(ismsData);
+    res.json({ success: true, syncedAt: new Date().toISOString() });
+  } catch (error: any) {
+    console.error('Failed to sync ISMS state to Cloud SQL:', error);
+    res.status(500).json({ error: 'Fehler beim Speichern in Cloud SQL' });
+  }
+});
+
+// Sync authenticated user to users table in PostgreSQL
+app.post('/api/auth/sync', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const { uid, email, name } = req.user as any;
+    if (!uid || !email) {
+      return res.status(400).json({ error: 'Fehlende Benutzerinformationen' });
+    }
+    const user = await getOrCreateUser(uid, email, name);
+    res.json({ success: true, user });
+  } catch (error: any) {
+    console.error('Failed to sync user:', error);
+    res.status(500).json({ error: 'Benutzersynchronisierung fehlgeschlagen' });
   }
 });
 

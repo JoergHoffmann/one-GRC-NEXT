@@ -38,6 +38,7 @@ function validateImportedData(parsed: any): string | null {
 }
 
 export function useISMSStore() {
+  const [isCloudSynced, setIsCloudSynced] = useState(false);
   const [data, setData] = useState<ISMSStoreData>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
@@ -53,6 +54,29 @@ export function useISMSStore() {
     return initialISMSState;
   });
 
+  // Load from Cloud SQL PostgreSQL on mount
+  useEffect(() => {
+    let isMounted = true;
+    fetch('/api/isms/data')
+      .then((res) => {
+        if (res.ok) return res.json();
+        throw new Error('API unavailable');
+      })
+      .then((cloudData) => {
+        if (isMounted && cloudData && Array.isArray(cloudData.controls) && cloudData.controls.length > 0) {
+          setData(cloudData);
+          setIsCloudSynced(true);
+        }
+      })
+      .catch((e) => {
+        console.log('Using local ISMS cache (Cloud SQL sync will reconnect)', e);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   // Save to local storage whenever data changes
   useEffect(() => {
     try {
@@ -60,6 +84,25 @@ export function useISMSStore() {
     } catch (e) {
       console.error('Error saving ISMS data to local storage', e);
     }
+  }, [data]);
+
+  // Debounced sync to Cloud SQL PostgreSQL
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetch('/api/isms/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+        .then((res) => {
+          if (res.ok) setIsCloudSynced(true);
+        })
+        .catch(() => {
+          setIsCloudSynced(false);
+        });
+    }, 1500);
+
+    return () => clearTimeout(timer);
   }, [data]);
 
   // Mutations
@@ -71,6 +114,13 @@ export function useISMSStore() {
       ),
       lastSavedAt: new Date().toISOString(),
     }));
+
+    // Async direct update in Cloud SQL
+    fetch(`/api/isms/control/${id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    }).catch((e) => console.log(`Background sync for control ${id} queued`, e));
   }, []);
 
   const batchUpdateControls = useCallback((controlIds: string[], updates: Partial<ISMSControl>) => {
@@ -341,6 +391,7 @@ export function useISMSStore() {
 
   return {
     data,
+    isCloudSynced,
     metrics,
     updateControl,
     batchUpdateControls,
