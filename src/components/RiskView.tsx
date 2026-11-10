@@ -15,7 +15,7 @@ import {
   Info,
 } from 'lucide-react';
 import { ISMSRisk, ISMSAsset, ISMSControl, RiskLevel, TreatmentStrategy } from '../types/isms';
-import { getRiskColorClass, calculateRiskScore } from '../utils/ismsUtils';
+import { getRiskColorClass, calculateRiskScore, nextSequentialId } from '../utils/ismsUtils';
 
 interface RiskViewProps {
   risks: ISMSRisk[];
@@ -163,7 +163,7 @@ export const RiskView: React.FC<RiskViewProps> = ({
       );
 
       const newRisk: ISMSRisk = {
-        id: `RSK-${String(risks.length + 1).padStart(2, '0')}`,
+        id: nextSequentialId(risks.map((r) => r.id), 'RSK-'),
         title: parsed.title || aiPrompt,
         assetRef: assets[0] ? `${assets[0].id} (${assets[0].name})` : 'Unternehmensdaten',
         threat: parsed.threat || 'Identifizierte Bedrohung',
@@ -206,7 +206,7 @@ export const RiskView: React.FC<RiskViewProps> = ({
     const post = calculateRiskScore(formState.postLikelihood, formState.postImpact);
 
     const newRisk: ISMSRisk = {
-      id: `RSK-${String(risks.length + 1).padStart(2, '0')}`,
+      id: nextSequentialId(risks.map((r) => r.id), 'RSK-'),
       title: formState.title,
       assetRef: formState.assetRef,
       threat: formState.threat,

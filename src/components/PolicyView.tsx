@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { FileText, Plus, Sparkles, Download, Edit3, Check, Trash2, X, Eye, Shield } from 'lucide-react';
 import { ISMSPolicy } from '../types/isms';
+import { nextSequentialId } from '../utils/ismsUtils';
 
 interface PolicyViewProps {
   policies: ISMSPolicy[];
@@ -88,8 +89,8 @@ export const PolicyView: React.FC<PolicyViewProps> = ({
       }
 
       const newPolicy: ISMSPolicy = {
-        id: `POL-${String(policies.length + 1).padStart(2, '0')}`,
-        identifier: `POL-${String(policies.length + 1).padStart(2, '0')}`,
+        id: nextSequentialId(policies.map((p) => p.id), 'POL-'),
+        identifier: nextSequentialId(policies.map((p) => p.identifier), 'POL-'),
         title: aiPrompt,
         category: 'Spezifische Richtlinie',
         status: 'Entwurf',
@@ -98,7 +99,7 @@ export const PolicyView: React.FC<PolicyViewProps> = ({
         approvedBy: 'Ausstehend',
         effectiveDate: new Date().toISOString().slice(0, 10),
         reviewCycleMonths: 12,
-        content: data.text,
+        content: `> **KI-generierter Entwurf** (Google Gemini, ${new Date().toISOString().slice(0, 10)}) – vor Freigabe fachlich prüfen und anpassen.\n\n${data.text}`,
       };
 
       onAddPolicy(newPolicy);

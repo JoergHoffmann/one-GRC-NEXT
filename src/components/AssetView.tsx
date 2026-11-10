@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Server, Plus, Search, Shield, Trash2, Edit2, X, Database, HardDrive, Cloud, User, Building } from 'lucide-react';
 import { ISMSAsset, AssetCategory, ProtectionLevel } from '../types/isms';
-import { getProtectionLevelColor } from '../utils/ismsUtils';
+import { getProtectionLevelColor, nextSequentialId } from '../utils/ismsUtils';
 
 interface AssetViewProps {
   assets: ISMSAsset[];
@@ -76,7 +76,7 @@ export const AssetView: React.FC<AssetViewProps> = ({
   const handleCreateAsset = (e: React.FormEvent) => {
     e.preventDefault();
     const newAsset: ISMSAsset = {
-      id: `AST-${String(assets.length + 1).padStart(2, '0')}`,
+      id: nextSequentialId(assets.map((a) => a.id), 'AST-'),
       ...formData,
     };
     onAddAsset(newAsset);
